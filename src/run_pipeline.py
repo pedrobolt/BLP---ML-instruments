@@ -122,8 +122,8 @@ try:
 
     # X1: utilidade linear (deve incluir prices)
     # X2: características com heterogeneidade aleatória (sigma)
-    X1_form = pyblp.Formulation("1 + x1 + x2 + x3 + prices")
-    X2_form = pyblp.Formulation("0 + x1 + x2 + x3")
+    X1_form = pyblp.Formulation("1 + x1_ram + x2_battery + x3_screen + prices") #X1_form = pyblp.Formulation("1 + x1 + x2 + x3 + prices")
+    X2_form = pyblp.Formulation("0 + x1_ram + x2_battery + x3_screen")  #X2_form = pyblp.Formulation("0 + x1 + x2 + x3")
 
     problem = pyblp.Problem(
         product_formulations=(X1_form, X2_form),

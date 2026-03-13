@@ -39,8 +39,8 @@ print("\n" + "=" * 60)
 print("ETAPA 1 — Geração de dados sintéticos")
 print("=" * 60)
 
-df = simulate_blp_data(T=50, J=10, seed=42)
-df.to_csv("data/raw/simulated_markets.csv", index=False)
+df = pd.read_csv("data/raw/smartphone_blp_countries.csv")    #df = simulate_blp_data(T=50, J=10, seed=42)
+df["outside_share"] = 1 - df.groupby("market_id")["shares"].transform("sum")    #df.to_csv("data/raw/simulated_markets.csv", index=False)
 print(f"Dados gerados: {df.shape[0]} observações, {df['market_id'].nunique()} mercados")
 print(df[["market_id", "product_id", "price", "shares", *CHAR_COLS]].head(5).to_string(index=False))
 

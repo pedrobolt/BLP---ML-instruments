@@ -1,0 +1,9 @@
+numpy>=1.17,<2
+pandas>=2.0
+scikit-learn>=1.3
+statsmodels>=0.14
+scipy>=1.11
+matplotlib>=3.7
+pyblp>=0.13          # estimação BLP — opcional mas recomendado
+jupyter>=1.0         # para rodar notebooks
+ipykernel>=6.0

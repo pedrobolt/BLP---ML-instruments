@@ -221,3 +221,28 @@ def select_instruments_combined(
         return X_candidates[lasso_cols]
 
     return X_candidates[combined]
+
+
+# ─────────────────────────────────────────────
+# 5. Remoção de colinearidade (VIF ou correlação)
+# ─────────────────────────────────────────────
+
+def remove_collinear_instruments(
+    Z: pd.DataFrame,
+    corr_threshold: float = 0.90,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Remove instrumentos com correlação >= corr_threshold entre si.
+    Mantém o primeiro de cada par colinear (priorizando ordem de importância).
+    """
+    corr = Z.corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    to_drop = [col for col in upper.columns if any(upper[col] >= corr_threshold)]
+
+    if verbose:
+        print(f"[Colinearidade] Removidos: {len(to_drop)} — {to_drop}")
+        print(f"[Colinearidade] Restantes: {Z.shape[1] - len(to_drop)}")
+
+    return Z.drop(columns=to_drop)
+

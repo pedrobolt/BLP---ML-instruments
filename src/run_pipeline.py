@@ -28,7 +28,7 @@ from diagnostics import first_stage, sargan_hansen_test, plot_first_stage, plot_
 CHAR_COLS        = ["x1_ram", "x2_battery", "x3_screen"]
 SELECTION_METHOD = "combined"   # "lasso" | "rf" | "combined"
 SAVE_PLOTS       = True
-CSV_PATH         = "data/raw/smartphone_blp_real.csv"
+CSV_PATH = "data/raw/smartphone_blp_countries.csv" #CSV_PATH         = "data/raw/smartphone_blp_real.csv"
 
 # Limite de instrumentos: evita colinearidade com poucos dados
 # Regra prática: máx N_obs / 15

@@ -25,7 +25,7 @@ from diagnostics import first_stage, sargan_hansen_test, plot_first_stage, plot_
 # ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
-CHAR_COLS = ["x1", "x2", "x3"]
+CHAR_COLS = ["x1_ram", "x2_battery", "x3_screen"]                                 #CHAR_COLS = ["x1", "x2", "x3"]
 SELECTION_METHOD = "combined"   # "lasso" | "rf" | "combined"
 SAVE_PLOTS = True
 

@@ -1,6 +1,6 @@
 """
 run_pipeline.py
-Pipeline completo: dados sintéticos → candidatos → seleção ML → diagnóstico → BLP
+Pipeline completo: CSV de smartphones → candidatos → seleção ML → diagnóstico → BLP
 
 Uso:
     python src/run_pipeline.py
@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import numpy as np
 import pandas as pd
 
-from simulate_data import simulate_blp_data
 from instruments import (
+    remove_collinear_instruments,
     build_instrument_candidates,
     select_instruments_lasso,
     select_instruments_rf,
@@ -25,9 +25,14 @@ from diagnostics import first_stage, sargan_hansen_test, plot_first_stage, plot_
 # ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
-CHAR_COLS = ["x1_ram", "x2_battery", "x3_screen"]                                 #CHAR_COLS = ["x1", "x2", "x3"]
+CHAR_COLS        = ["x1_ram", "x2_battery", "x3_screen"]
 SELECTION_METHOD = "combined"   # "lasso" | "rf" | "combined"
-SAVE_PLOTS = True
+SAVE_PLOTS       = True
+CSV_PATH         = "data/raw/smartphone_blp_real.csv"
+
+# Limite de instrumentos: evita colinearidade com poucos dados
+# Regra prática: máx N_obs / 15
+MAX_INSTRUMENTS  = 6
 
 os.makedirs("data/raw", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
@@ -36,13 +41,24 @@ os.makedirs("outputs", exist_ok=True)
 # 1. Dados
 # ─────────────────────────────────────────────
 print("\n" + "=" * 60)
-print("ETAPA 1 — Geração de dados sintéticos")
+print("ETAPA 1 — Carregamento dos dados")
 print("=" * 60)
 
-df = pd.read_csv("data/raw/smartphone_blp_countries.csv")    #df = simulate_blp_data(T=50, J=10, seed=42)
-df["outside_share"] = 1 - df.groupby("market_id")["shares"].transform("sum")    #df.to_csv("data/raw/simulated_markets.csv", index=False)
-print(f"Dados gerados: {df.shape[0]} observações, {df['market_id'].nunique()} mercados")
-print(df[["market_id", "product_id", "price", "shares", *CHAR_COLS]].head(5).to_string(index=False))
+if not os.path.exists(CSV_PATH):
+    raise FileNotFoundError(
+        f"Arquivo não encontrado: {CSV_PATH}\n"
+        "Coloque smartphone_blp_real.csv em data/raw/"
+    )
+
+df = pd.read_csv(CSV_PATH)
+df["outside_share"] = 1 - df.groupby("market_id")["shares"].transform("sum")
+
+print(f"Dados carregados : {df.shape[0]} observações")
+print(f"Mercados         : {df['market_id'].nunique()} ({df['market_id'].min()}–{df['market_id'].max()})")
+print(f"Produtos únicos  : {df['product_id'].nunique()}")
+print(f"Firmas           : {sorted(df['firm_id'].unique())}")
+print()
+print(df[["market_id", "product_id", "firm_id", "price", "shares", *CHAR_COLS]].head(8).to_string(index=False))
 
 # ─────────────────────────────────────────────
 # 2. Candidatos a instrumento
@@ -53,13 +69,12 @@ print("=" * 60)
 
 candidates = build_instrument_candidates(df, CHAR_COLS)
 print(f"Candidatos gerados: {candidates.shape[1]} variáveis")
-print(f"Colunas: {list(candidates.columns)}")
 
 price  = df["price"]
 X_ctrl = df[CHAR_COLS]
 
 # ─────────────────────────────────────────────
-# 3. Seleção ML
+# 3. Seleção ML + limitação por colinearidade
 # ─────────────────────────────────────────────
 print("\n" + "=" * 60)
 print(f"ETAPA 3 — Seleção de instrumentos: {SELECTION_METHOD.upper()}")
@@ -74,10 +89,24 @@ elif SELECTION_METHOD == "rf":
         plot_instrument_importance(importances, save_path="outputs/rf_importance.png")
 
 else:  # combined
-    Z_selected = select_instruments_combined(candidates, price, X_ctrl)
+    Z_selected = select_instruments_combined(
+        candidates, price, X_ctrl,
+        rf_threshold=0.04,   # mais restritivo: só instrumentos com importância > 4%
+    )
     _, importances = select_instruments_rf(candidates, price, verbose=False)
     if SAVE_PLOTS:
         plot_instrument_importance(importances, save_path="outputs/rf_importance.png")
+
+# Remove colinearidade antes de passar pro BLP
+Z_selected = remove_collinear_instruments(Z_selected, corr_threshold=0.90)
+
+# Limita número de instrumentos para evitar colinearidade (N pequeno)
+if Z_selected.shape[1] > MAX_INSTRUMENTS:
+    _, importances_all = select_instruments_rf(candidates, price, verbose=False)
+    # Pega os top-N por importância RF dentro dos já selecionados
+    top_cols = [c for c in importances_all.index if c in Z_selected.columns][:MAX_INSTRUMENTS]
+    Z_selected = candidates[top_cols]
+    print(f"[INFO] Reduzido para {MAX_INSTRUMENTS} instrumentos (regra: N/15 = {len(price)//15})")
 
 print(f"\nInstrumentos finais ({Z_selected.shape[1]}): {list(Z_selected.columns)}")
 
@@ -110,20 +139,17 @@ print("=" * 60)
 try:
     import pyblp
 
-    # PyBLP exige nomes específicos de coluna (tudo no plural)
     df_blp = df.copy()
     df_blp["market_ids"] = df_blp["market_id"]
     df_blp["firm_ids"]   = df_blp["firm_id"]
     df_blp["prices"]     = df_blp["price"]
 
-    # Instrumentos: PyBLP lê demand_instruments0, demand_instruments1, ...
     for i, col in enumerate(Z_selected.columns):
         df_blp[f"demand_instruments{i}"] = Z_selected[col].values
 
-    # X1: utilidade linear (deve incluir prices)
-    # X2: características com heterogeneidade aleatória (sigma)
-    X1_form = pyblp.Formulation("1 + x1_ram + x2_battery + x3_screen + prices") #X1_form = pyblp.Formulation("1 + x1 + x2 + x3 + prices")
-    X2_form = pyblp.Formulation("0 + x1_ram + x2_battery + x3_screen")  #X2_form = pyblp.Formulation("0 + x1 + x2 + x3")
+    char_formula = " + ".join(CHAR_COLS)
+    X1_form = pyblp.Formulation(f"1 + {char_formula} + prices")
+    X2_form = pyblp.Formulation(f"0 + {char_formula}")
 
     problem = pyblp.Problem(
         product_formulations=(X1_form, X2_form),
@@ -134,16 +160,17 @@ try:
     print(problem)
 
     results = problem.solve(
-        sigma=np.diag([0.5, 0.5, 0.5]),
-        optimization=pyblp.Optimization("bfgs"),
+        sigma=np.diag([0.5] * len(CHAR_COLS)),
+        optimization=pyblp.Optimization("l-bfgs-b"),
         iteration=pyblp.Iteration("squarem"),
     )
 
     print(results)
 
-    print("\nElasticidades — mercado 0 (primeiros 5 produtos):")
+    print(f"\nElasticidades — mercado {df['market_id'].iloc[0]} (primeiros 5 produtos):")
     elasticities = results.compute_elasticities()
-    print(pd.DataFrame(elasticities[0]).round(3).iloc[:5, :5].to_string())
+    n = min(5, elasticities[0].shape[0])
+    print(pd.DataFrame(elasticities[0]).round(3).iloc[:n, :n].to_string())
 
 except ImportError:
     print("[INFO] pyblp não instalado: pip install pyblp")
@@ -157,6 +184,8 @@ except Exception as e:
 print("\n" + "=" * 60)
 print("SUMÁRIO")
 print("=" * 60)
+print(f"Observações               : {len(df)}")
+print(f"Mercados                  : {df['market_id'].nunique()}")
 print(f"Candidatos gerados        : {candidates.shape[1]}")
 print(f"Instrumentos selecionados : {Z_selected.shape[1]}")
 print(f"F-stat first stage        : {fs_results['f_stat']:.2f}")

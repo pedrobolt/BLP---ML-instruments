@@ -32,7 +32,7 @@ CSV_PATH = "data/raw/smartphone_blp_countries.csv" #CSV_PATH         = "data/raw
 
 # Limite de instrumentos: evita colinearidade com poucos dados
 # Regra prática: máx N_obs / 15
-MAX_INSTRUMENTS  = 6
+MAX_INSTRUMENTS  = 8
 
 os.makedirs("data/raw", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
@@ -139,13 +139,30 @@ print("=" * 60)
 try:
     import pyblp
 
+    from sklearn.preprocessing import StandardScaler
+
+    scaler_z = StandardScaler()
+    Z_scaled = pd.DataFrame(
+        scaler_z.fit_transform(Z_selected),
+        columns=Z_selected.columns,
+        index=Z_selected.index,
+    )
+    scaler_x = StandardScaler()
+    X_scaled = pd.DataFrame(
+        scaler_x.fit_transform(X_ctrl),
+        columns=CHAR_COLS,
+        index=X_ctrl.index,
+    )
+
     df_blp = df.copy()
     df_blp["market_ids"] = df_blp["market_id"]
     df_blp["firm_ids"]   = df_blp["firm_id"]
     df_blp["prices"]     = df_blp["price"]
+    for col in CHAR_COLS:
+        df_blp[col] = X_scaled[col].values
 
-    for i, col in enumerate(Z_selected.columns):
-        df_blp[f"demand_instruments{i}"] = Z_selected[col].values
+    for i, col in enumerate(Z_scaled.columns):
+        df_blp[f"demand_instruments{i}"] = Z_scaled[col].values
 
     char_formula = " + ".join(CHAR_COLS)
     X1_form = pyblp.Formulation(f"1 + {char_formula} + prices")
